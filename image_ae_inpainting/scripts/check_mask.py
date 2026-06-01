@@ -38,7 +38,7 @@ def main():
     x = resize(x, (128, 128), anti_aliasing=True).astype(np.float32)
 
     masks = {
-        "random_50": random_mask(x.shape, missing_ratio=0.5, seed=0),
+        "random_30": random_mask(x.shape, missing_ratio=0.3, seed=0),
         "block": block_mask(x.shape, block_size=32, seed=0),
         "irregular": irregular_mask(x.shape, seed=0),
     }

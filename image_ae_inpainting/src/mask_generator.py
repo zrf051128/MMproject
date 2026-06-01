@@ -233,7 +233,7 @@ def demo():
     Run a simple mask generation test.
 
     This function will generate:
-    - random_50_check.png
+    - random_30_check.png
     - block_check.png
     - irregular_check.png
 
@@ -246,7 +246,7 @@ def demo():
     image = load_demo_image(size=(128, 128))
 
     mask_dict = {
-        "random_50": random_mask(image.shape, missing_ratio=0.5, seed=0),
+        "random_30": random_mask(image.shape, missing_ratio=0.3, seed=0),
         "block": block_mask(image.shape, block_size=32, seed=0),
         "irregular": irregular_mask(
             image.shape,

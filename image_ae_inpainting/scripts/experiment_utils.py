@@ -26,7 +26,7 @@ from src.optimization import optimize_image_with_ae_tv
 from src.train_ae import TrainConfig, load_autoencoder, train_autoencoder
 
 
-DEFAULT_IMAGES = ["cameraman", "barbara", "house", "peppers", "lena"]
+DEFAULT_IMAGES = ["cameraman", "barbara", "house", "peppers"]
 DEFAULT_MASKS = ["random10", "random30", "random50", "irregular"]
 DEFAULT_METHODS = ["dct", "wavelet", "tv", "ae_only", "tv_ae"]
 
@@ -167,7 +167,7 @@ def ae_weight_path(image_name, patch_size=8, latent_dim=16, mask_type=None):
     if mask_type:
         filename = f"{image_name}_{mask_type}_p{patch_size}_d{latent_dim}_current.pt"
     else:
-        filename = f"{image_name}_p{patch_size}_d{latent_dim}_current.pt"
+        filename = f"{image_name}_p{patch_size}_d{latent_dim}_combined.pt"
     return weights_dir / filename
 
 
@@ -193,7 +193,7 @@ def get_autoencoder_for_case(
 ):
     """
     ae_source:
-      - load: load image-level weight, e.g. cameraman_p8_d16_current.pt
+      - load: load image-level weight, e.g. cameraman_p8_d16_combined.pt
       - train: train mask-specific AE on the corrupted image and save it
       - auto: use mask-specific weight if present, else image-level, else train
     """

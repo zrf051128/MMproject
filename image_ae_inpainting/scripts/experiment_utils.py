@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -17,30 +18,43 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
+from src.baselines import dct_inpainting, tv_inpainting, wavelet_inpainting
 from src.data_loader import load_all_images
-from src.mask_generator import random_mask, irregular_mask, apply_mask
+from src.mask_generator import apply_mask, irregular_mask, random_mask
 from src.metrics import compute_all_metrics
-from src.baselines import (
-    opencv_telea,
-    opencv_ns,
-    tv_inpainting,
-    wavelet_sparse_inpainting,
-    kmeans_patch_prior_inpainting,
-)
 from src.optimization import optimize_image_with_ae_tv
 from src.train_ae import TrainConfig, load_autoencoder, train_autoencoder
 
 
 DEFAULT_IMAGES = ["cameraman", "barbara", "house", "peppers", "lena"]
 DEFAULT_MASKS = ["random10", "random30", "random50", "irregular"]
-DEFAULT_METHODS = [
-    "opencv_telea",
-    "opencv_ns",
-    "tv",
-    "wavelet",
-    "kmeans_patch",
-    "ours",
-]
+DEFAULT_METHODS = ["dct", "wavelet", "tv", "ae_only", "tv_ae"]
+
+METHOD_LABELS = {
+    "dct": "DCT-only",
+    "wavelet": "Wavelet",
+    "tv": "TV",
+    "ae_only": "AE-only",
+    "tv_ae": "TV+AE",
+}
+
+
+def canonical_method_name(method_name):
+    raw_name = method_name.lower()
+    method_name = raw_name.replace("-", "_").replace("+", "_")
+    aliases = {
+        "dct_only": "dct",
+        "tv_only": "tv",
+        "ae": "ae_only",
+        "aeonly": "ae_only",
+        "ae_tv": "tv_ae",
+        "tvae": "tv_ae",
+    }
+    return aliases.get(method_name, raw_name)
+
+
+def methods_require_ae(methods):
+    return any(canonical_method_name(method) in {"ae_only", "tv_ae"} for method in methods)
 
 
 def parse_name_list(value, default_values):
@@ -219,7 +233,6 @@ def get_autoencoder_for_case(
         save_every=max(1, ae_epochs // 5),
     )
 
-    # Train on the corrupted image to avoid using missing-pixel ground truth.
     ae, _history = train_autoencoder(
         corrupted_image,
         mask,
@@ -231,23 +244,41 @@ def get_autoencoder_for_case(
 
 def default_method_settings():
     return {
-        "telea_radius": 3,
-        "ns_radius": 3,
-        "lam_tv": 1e-3,
-        "tv_lr": 1e-2,
-        "tv_steps": 500,
+        "lam_dct": 0.01,
         "lam_wavelet": 0.01,
-        "wavelet_steps": 120,
-        "wavelet_step_size": 1.0,
-        "kmeans_clusters": 64,
-        "kmeans_iters": 15,
-        "kmeans_alpha": 0.8,
-        "kmeans_visible_threshold": 0.6,
-        "lam_ae": 1e-3,
-        "ours_lr": 1e-2,
-        "ours_steps": 800,
+        "lam_tv": 0.01,
+        "lam_ae": 0.01,
+        "image_lr": 0.03,
+        "image_steps": 500,
         "log_interval": 20,
     }
+
+
+def method_parameter_extra(method_name, settings, patch_size, stride, latent_dim):
+    method_name = canonical_method_name(method_name)
+    row = {
+        "lambda_dct": np.nan,
+        "lambda_wavelet": np.nan,
+        "lambda_tv": np.nan,
+        "lambda_ae": np.nan,
+        "patch_size": patch_size,
+        "stride": stride,
+        "latent_dim": latent_dim,
+    }
+
+    if method_name == "dct":
+        row["lambda_dct"] = settings["lam_dct"]
+    elif method_name == "wavelet":
+        row["lambda_wavelet"] = settings["lam_wavelet"]
+    elif method_name == "tv":
+        row["lambda_tv"] = settings["lam_tv"]
+    elif method_name == "ae_only":
+        row["lambda_ae"] = settings["lam_ae"]
+    elif method_name == "tv_ae":
+        row["lambda_tv"] = settings["lam_tv"]
+        row["lambda_ae"] = settings["lam_ae"]
+
+    return row
 
 
 def run_restoration_method(
@@ -261,60 +292,50 @@ def run_restoration_method(
     stride=4,
     verbose=False,
 ):
-    method_name = method_name.lower()
+    method_name = canonical_method_name(method_name)
 
     start = time.time()
     log = None
 
-    if method_name == "opencv_telea":
-        x_hat = opencv_telea(y, mask, radius=settings["telea_radius"])
+    if method_name == "dct":
+        x_hat, log = dct_inpainting(
+            y,
+            mask,
+            lam_dct=settings["lam_dct"],
+            lr=settings["image_lr"],
+            steps=settings["image_steps"],
+            x_gt=x_gt,
+            log_interval=settings["log_interval"],
+            verbose=verbose,
+        )
 
-    elif method_name == "opencv_ns":
-        x_hat = opencv_ns(y, mask, radius=settings["ns_radius"])
+    elif method_name == "wavelet":
+        x_hat, log = wavelet_inpainting(
+            y,
+            mask,
+            lam_wavelet=settings["lam_wavelet"],
+            lr=settings["image_lr"],
+            steps=settings["image_steps"],
+            x_gt=x_gt,
+            log_interval=settings["log_interval"],
+            verbose=verbose,
+        )
 
     elif method_name == "tv":
         x_hat, log = tv_inpainting(
             y,
             mask,
             lam_tv=settings["lam_tv"],
-            lr=settings["tv_lr"],
-            steps=settings["tv_steps"],
-            init="telea",
+            lr=settings["image_lr"],
+            steps=settings["image_steps"],
+            x_gt=x_gt,
+            log_interval=settings["log_interval"],
             verbose=verbose,
         )
 
-    elif method_name == "wavelet":
-        x_hat, log = wavelet_sparse_inpainting(
-            y,
-            mask,
-            lam_wavelet=settings["lam_wavelet"],
-            steps=settings["wavelet_steps"],
-            step_size=settings["wavelet_step_size"],
-            wavelet="db2",
-            level=2,
-            init="telea",
-            enforce_observed=True,
-            verbose=verbose,
-        )
-
-    elif method_name == "kmeans_patch":
-        x_hat, log = kmeans_patch_prior_inpainting(
-            y,
-            mask,
-            patch_size=patch_size,
-            stride=stride,
-            n_clusters=settings["kmeans_clusters"],
-            outer_iters=settings["kmeans_iters"],
-            alpha=settings["kmeans_alpha"],
-            visible_threshold=settings["kmeans_visible_threshold"],
-            init="telea",
-            random_state=0,
-            verbose=verbose,
-        )
-
-    elif method_name == "ours":
+    elif method_name in {"ae_only", "tv_ae"}:
         if ae is None:
-            raise ValueError("Method 'ours' requires a trained autoencoder.")
+            raise ValueError(f"Method '{method_name}' requires a trained autoencoder.")
         x_hat, log = optimize_image_with_ae_tv(
             y=y,
             mask=mask,
@@ -322,10 +343,10 @@ def run_restoration_method(
             patch_size=patch_size,
             stride=stride,
             lam_ae=settings["lam_ae"],
-            lam_tv=settings["lam_tv"],
-            lr=settings["ours_lr"],
-            steps=settings["ours_steps"],
-            init="telea",
+            lam_tv=0.0 if method_name == "ae_only" else settings["lam_tv"],
+            lr=settings["image_lr"],
+            steps=settings["image_steps"],
+            init="mean",
             ae_input_format="flat",
             fix_observed=True,
             x_gt=x_gt,
@@ -337,7 +358,7 @@ def run_restoration_method(
         raise ValueError(f"Unknown method: {method_name}")
 
     runtime = time.time() - start
-    metrics = compute_all_metrics(x_hat, x_gt)
+    metrics = compute_all_metrics(x_hat, x_gt, mask=mask)
     return x_hat, log, runtime, metrics
 
 
@@ -345,11 +366,14 @@ def metric_row(image_name, mask_type, method_name, metrics, runtime, extra=None)
     row = {
         "image": image_name,
         "mask_type": mask_type,
-        "method": method_name,
+        "method": canonical_method_name(method_name),
         "psnr": metrics.get("psnr", np.nan),
         "ssim": metrics.get("ssim", np.nan),
         "rmse": metrics.get("rmse", np.nan),
         "mae": metrics.get("mae", np.nan),
+        "psnr_missing": metrics.get("psnr_missing", np.nan),
+        "rmse_missing": metrics.get("rmse_missing", np.nan),
+        "mae_missing": metrics.get("mae_missing", np.nan),
         "runtime": runtime,
     }
     if extra:
@@ -363,8 +387,17 @@ def plot_loss_curve(log, save_path, title="Loss Curve"):
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
+    keys = [
+        "total_loss",
+        "data_loss",
+        "dct_loss",
+        "wavelet_loss",
+        "tv_loss",
+        "ae_loss",
+    ]
+
     plt.figure(figsize=(6, 4))
-    for key in ["total_loss", "data_loss", "ae_loss", "tv_loss", "patch_error"]:
+    for key in keys:
         if key in log:
             plt.plot(log[key], label=key)
     plt.xlabel("Iteration")

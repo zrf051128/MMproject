@@ -14,11 +14,12 @@ def torch_tv_loss(x, eps=1e-6):
     """
     import torch
 
-    dx = x[:, :, 1:, :-1] - x[:, :, :-1, :-1]
-    dy = x[:, :, :-1, 1:] - x[:, :, :-1, :-1]
+    dx = x[:, :, :, 1:] - x[:, :, :, :-1]
+    dy = x[:, :, 1:, :] - x[:, :, :-1, :]
 
-    tv = torch.sqrt(dx ** 2 + dy ** 2 + eps).mean()
-    return tv
+    dx_crop = dx[:, :, :-1, :]
+    dy_crop = dy[:, :, :, :-1]
+    return torch.sqrt(dx_crop ** 2 + dy_crop ** 2 + eps).mean()
 
 
 def extract_patches_torch(x, patch_size=8, stride=4):
@@ -105,19 +106,19 @@ def optimize_image_with_ae_tv(
     ae,
     patch_size=8,
     stride=4,
-    lam_ae=1e-2,
-    lam_tv=1e-3,
-    lr=1e-2,
-    steps=800,
-    init="telea",
+    lam_ae=0.01,
+    lam_tv=0.01,
+    lr=0.03,
+    steps=500,
+    init="mean",
     ae_input_format="image",
-    fix_observed=False,
+    fix_observed=True,
     x_gt=None,
     log_interval=20,
     verbose=True,
 ):
     """
-    Ours: AE prior + TV optimization.
+    AE-only or TV+AE optimization, depending on lambda values.
 
     Optimization model:
 
@@ -148,7 +149,7 @@ def optimize_image_with_ae_tv(
     steps : int
         Optimization steps.
     init : str
-        Initialization method. Currently supports "telea", "zero", "mean".
+        Initialization method. Supports "mean" and "zero".
     ae_input_format : str
         "image" or "flat".
     fix_observed : bool
@@ -169,19 +170,12 @@ def optimize_image_with_ae_tv(
     """
     import torch
 
-    try:
-        from .baselines import opencv_telea
-    except ImportError:
-        from baselines import opencv_telea
-
     y = _to_float01(y)
     mask = np.asarray(mask).astype(np.float32)
 
     H, W = y.shape
 
-    if init == "telea":
-        x0 = opencv_telea(y, mask)
-    elif init == "zero":
+    if init == "zero":
         x0 = y.copy()
     elif init == "mean":
         x0 = y.copy()
@@ -190,7 +184,7 @@ def optimize_image_with_ae_tv(
         x0[mask == 0] = mean_val
         x0 = _to_float01(x0)
     else:
-        raise ValueError("init must be 'telea', 'zero', or 'mean'.")
+        raise ValueError("init must be 'mean' or 'zero'.")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -249,7 +243,7 @@ def optimize_image_with_ae_tv(
             x.clamp_(0.0, 1.0)
 
             if fix_observed:
-                x.data = m_t * y_t + (1.0 - m_t) * x.data
+                x.copy_(m_t * y_t + (1.0 - m_t) * x)
 
         log["total_loss"].append(float(total_loss.detach().cpu()))
         log["data_loss"].append(float(data_loss.detach().cpu()))
@@ -267,7 +261,7 @@ def optimize_image_with_ae_tv(
 
         if verbose and (step % 100 == 0 or step == steps - 1):
             msg = (
-                f"[Ours] step {step:04d} | "
+                f"[TV+AE] step {step:04d} | "
                 f"total={log['total_loss'][-1]:.6f} | "
                 f"data={log['data_loss'][-1]:.6f} | "
                 f"ae={log['ae_loss'][-1]:.6f} | "

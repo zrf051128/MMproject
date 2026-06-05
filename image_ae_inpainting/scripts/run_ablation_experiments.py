@@ -1,6 +1,5 @@
 import argparse
 
-import numpy as np
 import pandas as pd
 
 from experiment_utils import (
@@ -12,6 +11,7 @@ from experiment_utils import (
     get_autoencoder_for_case,
     load_selected_images,
     make_mask,
+    method_parameter_extra,
     metric_row,
     plot_loss_curve,
     plot_psnr_curve,
@@ -20,13 +20,15 @@ from experiment_utils import (
     save_image,
     save_log,
 )
-from src.baselines import tv_inpainting
 from src.mask_generator import apply_mask
+
+
+ABLATION_METHODS = ["dct", "wavelet", "tv", "ae_only", "tv_ae"]
 
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(
-        description="Run formal objective ablation and lambda_AE sensitivity experiments."
+        description="Run objective ablation and lambda_AE sensitivity experiments."
     )
     parser.add_argument("--image", type=str, default="cameraman")
     parser.add_argument("--mask", type=str, default="random30")
@@ -48,17 +50,18 @@ def build_arg_parser():
     parser.add_argument("--ae_batch_size", type=int, default=128)
     parser.add_argument("--ae_lr", type=float, default=1e-3)
 
-    parser.add_argument("--lam_ae", type=float, default=1e-3)
-    parser.add_argument("--lam_tv", type=float, default=1e-3)
+    parser.add_argument("--lam_dct", type=float, default=0.01)
+    parser.add_argument("--lam_wavelet", type=float, default=0.01)
+    parser.add_argument("--lam_tv", type=float, default=0.01)
+    parser.add_argument("--lam_ae", type=float, default=0.01)
     parser.add_argument(
         "--lambda_sweep",
         type=str,
-        default="1e-4,1e-3,1e-2,5e-2,1e-1",
+        default="1e-3,3e-3,1e-2,3e-2,1e-1",
         help="Comma-separated lambda_AE values.",
     )
-    parser.add_argument("--steps", type=int, default=800)
-    parser.add_argument("--lr", type=float, default=1e-2)
-    parser.add_argument("--tv_steps", type=int, default=500)
+    parser.add_argument("--steps", type=int, default=500)
+    parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument("--log_interval", type=int, default=20)
     parser.add_argument("--verbose", action="store_true")
     return parser
@@ -72,12 +75,12 @@ def settings_from_args(args):
     settings = default_method_settings()
     settings.update(
         {
-            "lam_ae": args.lam_ae,
+            "lam_dct": args.lam_dct,
+            "lam_wavelet": args.lam_wavelet,
             "lam_tv": args.lam_tv,
-            "ours_steps": args.steps,
-            "ours_lr": args.lr,
-            "tv_steps": args.tv_steps,
-            "tv_lr": args.lr,
+            "lam_ae": args.lam_ae,
+            "image_steps": args.steps,
+            "image_lr": args.lr,
             "log_interval": args.log_interval,
         }
     )
@@ -128,105 +131,52 @@ def main():
     comparison_images = [x_gt, mask, y]
     comparison_titles = ["Original", "Mask", "Corrupted"]
 
-    corrupted_metrics = compute_all_metrics(y, x_gt)
+    corrupted_metrics = compute_all_metrics(y, x_gt, mask=mask)
     objective_rows.append(
         metric_row(args.image, args.mask, "corrupted", corrupted_metrics, 0.0)
     )
 
-    print("Running TV only...")
-    import time
+    logs_by_method = {}
+    print("Running objective ablation methods...")
+    for method in ABLATION_METHODS:
+        print(f"Running {method}...")
+        x_hat, log, runtime, metrics = run_restoration_method(
+            method,
+            y,
+            mask,
+            x_gt,
+            settings,
+            ae=ae,
+            patch_size=args.patch_size,
+            stride=args.stride,
+            verbose=args.verbose,
+        )
+        extra = method_parameter_extra(
+            method,
+            settings,
+            patch_size=args.patch_size,
+            stride=args.stride,
+            latent_dim=args.latent_dim,
+        )
+        if method in {"ae_only", "tv_ae"}:
+            extra["ae_weight"] = ae_weight_used
 
-    start = time.time()
-    x_tv, tv_log = tv_inpainting(
-        y,
-        mask,
-        lam_tv=args.lam_tv,
-        lr=args.lr,
-        steps=args.tv_steps,
-        init="telea",
-        verbose=args.verbose,
-    )
-    runtime = time.time() - start
-    tv_metrics = compute_all_metrics(x_tv, x_gt)
-    tv_row = metric_row(args.image, args.mask, "tv_only", tv_metrics, runtime)
-    objective_rows.append(tv_row)
-    save_ablation_outputs(
-        f"{prefix_base}_ablation_tv_only",
-        x_tv,
-        tv_log,
-        tv_row,
-        dirs,
-        comparison_images,
-        comparison_titles,
-    )
-
-    print("Running AE only...")
-    ae_only_settings = dict(settings)
-    ae_only_settings["lam_tv"] = 0.0
-    ae_only_settings["lam_ae"] = args.lam_ae
-    x_ae, ae_log, ae_runtime, ae_metrics = run_restoration_method(
-        "ours",
-        y,
-        mask,
-        x_gt,
-        ae_only_settings,
-        ae=ae,
-        patch_size=args.patch_size,
-        stride=args.stride,
-        verbose=args.verbose,
-    )
-    ae_row = metric_row(
-        args.image,
-        args.mask,
-        "ae_only",
-        ae_metrics,
-        ae_runtime,
-        extra={"ae_weight": ae_weight_used},
-    )
-    objective_rows.append(ae_row)
-    save_ablation_outputs(
-        f"{prefix_base}_ablation_ae_only",
-        x_ae,
-        ae_log,
-        ae_row,
-        dirs,
-        comparison_images,
-        comparison_titles,
-    )
-
-    print("Running AE + TV...")
-    ae_tv_settings = dict(settings)
-    ae_tv_settings["lam_tv"] = args.lam_tv
-    ae_tv_settings["lam_ae"] = args.lam_ae
-    x_ae_tv, ae_tv_log, ae_tv_runtime, ae_tv_metrics = run_restoration_method(
-        "ours",
-        y,
-        mask,
-        x_gt,
-        ae_tv_settings,
-        ae=ae,
-        patch_size=args.patch_size,
-        stride=args.stride,
-        verbose=args.verbose,
-    )
-    ae_tv_row = metric_row(
-        args.image,
-        args.mask,
-        "ae_tv",
-        ae_tv_metrics,
-        ae_tv_runtime,
-        extra={"ae_weight": ae_weight_used},
-    )
-    objective_rows.append(ae_tv_row)
-    save_ablation_outputs(
-        f"{prefix_base}_ablation_ae_tv",
-        x_ae_tv,
-        ae_tv_log,
-        ae_tv_row,
-        dirs,
-        comparison_images,
-        comparison_titles,
-    )
+        row = metric_row(args.image, args.mask, method, metrics, runtime, extra=extra)
+        objective_rows.append(row)
+        logs_by_method[method] = log
+        save_ablation_outputs(
+            f"{prefix_base}_ablation_{method}",
+            x_hat,
+            log,
+            row,
+            dirs,
+            comparison_images,
+            comparison_titles,
+        )
+        print(
+            f"  {method}: PSNR={row['psnr']:.4f} SSIM={row['ssim']:.4f} "
+            f"PSNR_missing={row['psnr_missing']:.4f} runtime={row['runtime']:.2f}s"
+        )
 
     objective_csv = dirs["tables"] / "objective_ablation.csv"
     append_csv_rows(objective_rows, objective_csv)
@@ -234,17 +184,19 @@ def main():
         comparison_images,
         comparison_titles,
         RESULTS_DIR / "figures" / f"{prefix_base}_objective_ablation.png",
-        max_cols=3,
+        max_cols=4,
     )
+
+    tv_ae_log = logs_by_method.get("tv_ae")
     plot_loss_curve(
-        ae_tv_log,
-        RESULTS_DIR / "figures" / f"{prefix_base}_convergence_loss.png",
-        title=f"{prefix_base} AE+TV Loss",
+        tv_ae_log,
+        RESULTS_DIR / "figures" / f"{prefix_base}_tv_ae_convergence_loss.png",
+        title=f"{prefix_base} TV+AE Loss",
     )
     plot_psnr_curve(
-        ae_tv_log,
-        RESULTS_DIR / "figures" / f"{prefix_base}_convergence_psnr.png",
-        title=f"{prefix_base} AE+TV PSNR",
+        tv_ae_log,
+        RESULTS_DIR / "figures" / f"{prefix_base}_tv_ae_convergence_psnr.png",
+        title=f"{prefix_base} TV+AE PSNR",
     )
 
     print("Running lambda_AE sensitivity...")
@@ -255,10 +207,9 @@ def main():
     for lam_ae in parse_float_list(args.lambda_sweep):
         sweep_settings = dict(settings)
         sweep_settings["lam_ae"] = lam_ae
-        sweep_settings["lam_tv"] = args.lam_tv
 
         x_sweep, sweep_log, sweep_runtime, sweep_metrics = run_restoration_method(
-            "ours",
+            "tv_ae",
             y,
             mask,
             x_gt,
@@ -270,13 +221,21 @@ def main():
         )
 
         lam_label = f"{lam_ae:.0e}".replace("+", "")
+        extra = method_parameter_extra(
+            "tv_ae",
+            sweep_settings,
+            patch_size=args.patch_size,
+            stride=args.stride,
+            latent_dim=args.latent_dim,
+        )
+        extra.update({"lambda_ae": lam_ae, "ae_weight": ae_weight_used})
         row = metric_row(
             args.image,
             args.mask,
             f"lambda_ae_{lam_label}",
             sweep_metrics,
             sweep_runtime,
-            extra={"lambda_ae": lam_ae, "ae_weight": ae_weight_used},
+            extra=extra,
         )
         sweep_rows.append(row)
 
@@ -287,7 +246,7 @@ def main():
 
         print(
             f"  lambda_AE={lam_ae:g}: PSNR={row['psnr']:.4f} "
-            f"SSIM={row['ssim']:.4f} runtime={row['runtime']:.2f}s"
+            f"PSNR_missing={row['psnr_missing']:.4f} runtime={row['runtime']:.2f}s"
         )
 
     sweep_csv = dirs["tables"] / "lambda_ae_sensitivity.csv"

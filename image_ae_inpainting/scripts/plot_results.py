@@ -12,21 +12,19 @@ from experiment_utils import RESULTS_DIR
 
 
 METHOD_ORDER = [
-    "opencv_telea",
-    "opencv_ns",
-    "tv",
+    "dct",
     "wavelet",
-    "kmeans_patch",
-    "ours",
+    "tv",
+    "ae_only",
+    "tv_ae",
 ]
 
 METHOD_LABELS = {
-    "opencv_telea": "OpenCV Telea",
-    "opencv_ns": "OpenCV NS",
-    "tv": "TV",
+    "dct": "DCT-only",
     "wavelet": "Wavelet",
-    "kmeans_patch": "K-means Patch",
-    "ours": "Ours",
+    "tv": "TV",
+    "ae_only": "AE-only",
+    "tv_ae": "TV+AE",
 }
 
 MASK_ORDER = ["random10", "random30", "random50", "irregular"]
@@ -181,7 +179,19 @@ def write_objective_table(objective_csv, out_path):
         print(f"Skipping objective table; missing {objective_csv}")
         return None
     df = pd.read_csv(objective_csv)
-    keep = ["image", "mask_type", "method", "psnr", "ssim", "rmse", "mae", "runtime"]
+    keep = [
+        "image",
+        "mask_type",
+        "method",
+        "psnr",
+        "ssim",
+        "rmse",
+        "mae",
+        "psnr_missing",
+        "rmse_missing",
+        "mae_missing",
+        "runtime",
+    ]
     keep = [c for c in keep if c in df.columns]
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -9,12 +9,15 @@ from experiment_utils import (
     DEFAULT_METHODS,
     RESULTS_DIR,
     append_csv_rows,
+    canonical_method_name,
     compute_all_metrics,
     default_method_settings,
     ensure_result_dirs,
     get_autoencoder_for_case,
     load_selected_images,
     make_mask,
+    method_parameter_extra,
+    methods_require_ae,
     metric_row,
     parse_name_list,
     plot_loss_curve,
@@ -29,7 +32,7 @@ from src.mask_generator import apply_mask
 
 def build_arg_parser():
     parser = argparse.ArgumentParser(
-        description="Run formal image AE inpainting main experiments."
+        description="Run formal optimization-based image inpainting experiments."
     )
     parser.add_argument(
         "--images",
@@ -47,7 +50,7 @@ def build_arg_parser():
         "--methods",
         type=str,
         default=",".join(DEFAULT_METHODS),
-        help="Comma-separated methods: opencv_telea,opencv_ns,tv,wavelet,kmeans_patch,ours.",
+        help="Comma-separated methods: dct,wavelet,tv,ae_only,tv_ae.",
     )
     parser.add_argument("--image_size", type=int, default=128)
     parser.add_argument("--seed", type=int, default=0)
@@ -67,16 +70,12 @@ def build_arg_parser():
     parser.add_argument("--ae_batch_size", type=int, default=128)
     parser.add_argument("--ae_lr", type=float, default=1e-3)
 
-    parser.add_argument("--lam_ae", type=float, default=1e-3)
-    parser.add_argument("--lam_tv", type=float, default=1e-3)
-    parser.add_argument("--ours_steps", type=int, default=800)
-    parser.add_argument("--ours_lr", type=float, default=1e-2)
-    parser.add_argument("--tv_steps", type=int, default=500)
-    parser.add_argument("--tv_lr", type=float, default=1e-2)
-    parser.add_argument("--wavelet_steps", type=int, default=120)
+    parser.add_argument("--lam_dct", type=float, default=0.01)
     parser.add_argument("--lam_wavelet", type=float, default=0.01)
-    parser.add_argument("--kmeans_clusters", type=int, default=64)
-    parser.add_argument("--kmeans_iters", type=int, default=15)
+    parser.add_argument("--lam_tv", type=float, default=0.01)
+    parser.add_argument("--lam_ae", type=float, default=0.01)
+    parser.add_argument("--steps", type=int, default=500)
+    parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument("--log_interval", type=int, default=20)
 
     parser.add_argument(
@@ -100,19 +99,18 @@ def build_arg_parser():
 
 
 def settings_from_args(args):
+    steps = args.steps
+    lr = args.lr
+
     settings = default_method_settings()
     settings.update(
         {
-            "lam_ae": args.lam_ae,
-            "lam_tv": args.lam_tv,
-            "ours_steps": args.ours_steps,
-            "ours_lr": args.ours_lr,
-            "tv_steps": args.tv_steps,
-            "tv_lr": args.tv_lr,
-            "wavelet_steps": args.wavelet_steps,
+            "lam_dct": args.lam_dct,
             "lam_wavelet": args.lam_wavelet,
-            "kmeans_clusters": args.kmeans_clusters,
-            "kmeans_iters": args.kmeans_iters,
+            "lam_tv": args.lam_tv,
+            "lam_ae": args.lam_ae,
+            "image_steps": steps,
+            "image_lr": lr,
             "log_interval": args.log_interval,
         }
     )
@@ -124,7 +122,7 @@ def main():
 
     image_names = parse_name_list(args.images, DEFAULT_IMAGES)
     mask_types = parse_name_list(args.masks, DEFAULT_MASKS)
-    methods = parse_name_list(args.methods, DEFAULT_METHODS)
+    methods = [canonical_method_name(m) for m in parse_name_list(args.methods, DEFAULT_METHODS)]
     dirs = ensure_result_dirs()
     settings = settings_from_args(args)
 
@@ -149,7 +147,7 @@ def main():
             save_image(mask, dirs["restored"] / f"{image_name}_{mask_type}_mask.png")
             save_image(y, dirs["restored"] / f"{image_name}_{mask_type}_corrupted.png")
 
-            corrupted_metrics = compute_all_metrics(y, x_gt)
+            corrupted_metrics = compute_all_metrics(y, x_gt, mask=mask)
             rows.append(
                 metric_row(
                     image_name,
@@ -166,7 +164,7 @@ def main():
 
             ae = None
             ae_weight_used = ""
-            if "ours" in [m.lower() for m in methods]:
+            if methods_require_ae(methods):
                 try:
                     ae, ae_weight_used = get_autoencoder_for_case(
                         image_name=image_name,
@@ -191,7 +189,6 @@ def main():
                     ae_weight_used = ""
 
             for method in methods:
-                method = method.lower()
                 output_path = dirs["restored"] / f"{image_name}_{mask_type}_{method}.png"
                 log_path = dirs["logs"] / f"{image_name}_{mask_type}_{method}_log.npy"
 
@@ -201,8 +198,8 @@ def main():
 
                 print(f"Running method: {method}")
                 try:
-                    if method == "ours" and ae is None:
-                        raise RuntimeError("AE was not prepared; cannot run ours.")
+                    if method in {"ae_only", "tv_ae"} and ae is None:
+                        raise RuntimeError("AE was not prepared; cannot run this method.")
 
                     x_hat, log, runtime, metrics = run_restoration_method(
                         method,
@@ -221,17 +218,31 @@ def main():
                     comparison_images.append(x_hat)
                     comparison_titles.append(method)
 
-                    if method == "ours" and log:
+                    if log:
                         plot_loss_curve(
                             log,
-                            RESULTS_DIR / "figures" / f"{image_name}_{mask_type}_ours_loss.png",
-                            title=f"{image_name} {mask_type} Ours Loss",
+                            RESULTS_DIR / "figures" / f"{image_name}_{mask_type}_{method}_loss.png",
+                            title=f"{image_name} {mask_type} {method} Loss",
                         )
                         plot_psnr_curve(
                             log,
-                            RESULTS_DIR / "figures" / f"{image_name}_{mask_type}_ours_psnr.png",
-                            title=f"{image_name} {mask_type} Ours PSNR",
+                            RESULTS_DIR / "figures" / f"{image_name}_{mask_type}_{method}_psnr.png",
+                            title=f"{image_name} {mask_type} {method} PSNR",
                         )
+
+                    extra = method_parameter_extra(
+                        method,
+                        settings,
+                        patch_size=args.patch_size,
+                        stride=args.stride,
+                        latent_dim=args.latent_dim,
+                    )
+                    extra.update(
+                        {
+                            "status": "ok",
+                            "ae_weight": ae_weight_used if method in {"ae_only", "tv_ae"} else "",
+                        }
+                    )
 
                     row = metric_row(
                         image_name,
@@ -239,11 +250,12 @@ def main():
                         method,
                         metrics,
                         runtime,
-                        extra={"status": "ok", "ae_weight": ae_weight_used if method == "ours" else ""},
+                        extra=extra,
                     )
                     rows.append(row)
                     print(
                         f"  PSNR={row['psnr']:.4f} SSIM={row['ssim']:.4f} "
+                        f"PSNR_missing={row['psnr_missing']:.4f} "
                         f"RMSE={row['rmse']:.4f} runtime={row['runtime']:.2f}s"
                     )
 
@@ -261,9 +273,12 @@ def main():
                             "ssim": np.nan,
                             "rmse": np.nan,
                             "mae": np.nan,
+                            "psnr_missing": np.nan,
+                            "rmse_missing": np.nan,
+                            "mae_missing": np.nan,
                             "runtime": np.nan,
                             "status": "error",
-                            "ae_weight": ae_weight_used if method == "ours" else "",
+                            "ae_weight": ae_weight_used if method in {"ae_only", "tv_ae"} else "",
                             "error": str(exc),
                         }
                     )

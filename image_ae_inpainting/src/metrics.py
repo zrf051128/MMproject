@@ -69,13 +69,56 @@ def compute_mae(x, gt):
     return float(mae)
 
 
-def compute_all_metrics(x, gt):
+def compute_missing_metrics(x, gt, mask):
     """
-    Compute all metrics at once.
+    Compute metrics only on missing pixels, where mask == 0.
     """
+    x = _to_float01(x)
+    gt = _to_float01(gt)
+    mask = np.asarray(mask).astype(np.float32)
+    missing = 1.0 - mask
+    denom = float(missing.sum())
+
+    if denom <= 0:
+        return {
+            "psnr_missing": np.nan,
+            "rmse_missing": np.nan,
+            "mae_missing": np.nan,
+        }
+
+    diff = (x - gt) * missing
+    mse = float(np.sum(diff ** 2) / denom)
+    mae = float(np.sum(np.abs(diff)) / denom)
+    rmse = float(np.sqrt(mse))
+    psnr = float("inf") if mse <= 0 else float(10.0 * np.log10(1.0 / mse))
+
     return {
+        "psnr_missing": psnr,
+        "rmse_missing": rmse,
+        "mae_missing": mae,
+    }
+
+
+def compute_all_metrics(x, gt, mask=None):
+    """
+    Compute full-image metrics and, if mask is provided, missing-region metrics.
+    """
+    metrics = {
         "psnr": compute_psnr(x, gt),
         "ssim": compute_ssim(x, gt),
         "rmse": compute_rmse(x, gt),
         "mae": compute_mae(x, gt),
     }
+
+    if mask is not None:
+        metrics.update(compute_missing_metrics(x, gt, mask))
+    else:
+        metrics.update(
+            {
+                "psnr_missing": np.nan,
+                "rmse_missing": np.nan,
+                "mae_missing": np.nan,
+            }
+        )
+
+    return metrics

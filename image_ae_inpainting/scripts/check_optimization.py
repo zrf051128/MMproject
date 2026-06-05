@@ -11,6 +11,7 @@ from skimage import data
 from skimage.transform import resize
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from src.mask_generator import random_mask, apply_mask
 from src.baselines import opencv_telea, tv_inpainting
@@ -210,7 +211,7 @@ def train_debug_tiny_ae(
 
 
 def main():
-    save_dir = Path("results/debug_optimization")
+    save_dir = PROJECT_ROOT / "results" / "debug_optimization"
     save_dir.mkdir(parents=True, exist_ok=True)
 
     # Load Cameraman image

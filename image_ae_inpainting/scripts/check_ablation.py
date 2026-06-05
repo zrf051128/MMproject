@@ -11,6 +11,7 @@ from skimage import data
 from skimage.transform import resize
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from src.mask_generator import random_mask, apply_mask
 from src.metrics import compute_all_metrics
@@ -260,7 +261,7 @@ def evaluate_and_save(method_name, x_hat, x_gt, runtime, save_dir, rows):
 # ============================================================
 
 def main():
-    save_dir = Path("results/check_ablation_random30")
+    save_dir = PROJECT_ROOT / "results" / "check_ablation_random30"
     save_dir.mkdir(parents=True, exist_ok=True)
 
     # --------------------------------------------------------

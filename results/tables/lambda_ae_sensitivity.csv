@@ -1,0 +1,6 @@
+image,mask_type,method,psnr,ssim,rmse,mae,runtime,lambda_ae,ae_weight
+cameraman,random30,lambda_ae_1e-04,30.59209814094816,0.9585293649734108,0.029538951814174652,0.006990369874984026,1.1313464641571045,0.0001,D:\pythonProject\MMproject\results\ae_weights\cameraman_p8_d16_current.pt
+cameraman,random30,lambda_ae_1e-03,30.144221705096996,0.9562234972227937,0.031102042645215988,0.007456053514033556,1.13594388961792,0.001,D:\pythonProject\MMproject\results\ae_weights\cameraman_p8_d16_current.pt
+cameraman,random30,lambda_ae_1e-02,28.238843297034038,0.9353857335024577,0.0387309230864048,0.009860582649707794,1.091132640838623,0.01,D:\pythonProject\MMproject\results\ae_weights\cameraman_p8_d16_current.pt
+cameraman,random30,lambda_ae_5e-02,26.696475765199974,0.8895040975928155,0.04625686630606651,0.013315130956470966,1.1285898685455322,0.05,D:\pythonProject\MMproject\results\ae_weights\cameraman_p8_d16_current.pt
+cameraman,random30,lambda_ae_1e-01,26.36125983878209,0.8715749607496294,0.04807696118950844,0.014442922547459602,1.1470401287078857,0.1,D:\pythonProject\MMproject\results\ae_weights\cameraman_p8_d16_current.pt

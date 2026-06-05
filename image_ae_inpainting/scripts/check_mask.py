@@ -1,13 +1,16 @@
 import os
 import sys
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import data
 from skimage.transform import resize
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-from src.mask_generator import random_mask, block_mask, irregular_mask
+from src.mask_generator import random_mask, irregular_mask
 
 
 def save_debug_image(x, mask, y, save_path):
@@ -31,16 +34,23 @@ def save_debug_image(x, mask, y, save_path):
 
 
 def main():
-    os.makedirs("results/debug_mask", exist_ok=True)
+    save_dir = PROJECT_ROOT / "results" / "debug_mask"
+    save_dir.mkdir(parents=True, exist_ok=True)
 
     # Use Cameraman image from skimage
     x = data.camera().astype(np.float32) / 255.0
     x = resize(x, (128, 128), anti_aliasing=True).astype(np.float32)
 
     masks = {
+        "random_10": random_mask(x.shape, missing_ratio=0.1, seed=0),
         "random_30": random_mask(x.shape, missing_ratio=0.3, seed=0),
-        "block": block_mask(x.shape, block_size=32, seed=0),
-        "irregular": irregular_mask(x.shape, seed=0),
+        "irregular": irregular_mask(
+            x.shape,
+            num_strokes=5,
+            max_len=25,
+            max_width=6,
+            seed=0
+        ),
     }
 
     for name, mask in masks.items():
@@ -56,7 +66,7 @@ def main():
             x,
             mask,
             y,
-            f"results/debug_mask/{name}_check.png"
+            save_dir / f"{name}_check.png"
         )
 
 

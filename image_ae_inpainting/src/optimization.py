@@ -169,7 +169,10 @@ def optimize_image_with_ae_tv(
     """
     import torch
 
-    from src.baselines import opencv_telea
+    try:
+        from .baselines import opencv_telea
+    except ImportError:
+        from baselines import opencv_telea
 
     y = _to_float01(y)
     mask = np.asarray(mask).astype(np.float32)
@@ -216,7 +219,10 @@ def optimize_image_with_ae_tv(
     }
 
     if x_gt is not None:
-        from src.metrics import compute_psnr, compute_ssim
+        try:
+            from .metrics import compute_psnr, compute_ssim
+        except ImportError:
+            from metrics import compute_psnr, compute_ssim
         x_gt = _to_float01(x_gt)
 
     for step in range(steps):

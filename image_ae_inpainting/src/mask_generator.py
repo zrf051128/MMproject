@@ -37,46 +37,7 @@ def random_mask(shape, missing_ratio, seed=0):
     return mask.astype(np.float32)
 
 
-def block_mask(shape, block_size=32, seed=0):
-    """
-    Generate a square block missing mask.
-
-    Parameters
-    ----------
-    shape : tuple
-        Image shape, usually (H, W). If input is (H, W, C), only H and W are used.
-    block_size : int
-        Size of the missing square block.
-    seed : int
-        Random seed.
-
-    Returns
-    -------
-    mask : np.ndarray
-        Binary mask with shape (H, W).
-        mask = 1 means observed.
-        mask = 0 means missing.
-    """
-    H, W = shape[:2]
-
-    if block_size <= 0:
-        raise ValueError("block_size must be positive.")
-
-    if block_size > min(H, W):
-        raise ValueError("block_size cannot be larger than image height or width.")
-
-    rng = np.random.default_rng(seed)
-    mask = np.ones((H, W), dtype=np.float32)
-
-    top = rng.integers(0, H - block_size + 1)
-    left = rng.integers(0, W - block_size + 1)
-
-    mask[top:top + block_size, left:left + block_size] = 0.0
-
-    return mask
-
-
-def irregular_mask(shape, num_strokes=10, max_len=40, max_width=12, seed=0):
+def irregular_mask(shape, num_strokes=5, max_len=25, max_width=6, seed=0):
     """
     Generate a free-form irregular missing mask using random strokes.
 
@@ -233,26 +194,26 @@ def demo():
     Run a simple mask generation test.
 
     This function will generate:
+    - random_10_check.png
     - random_30_check.png
-    - block_check.png
     - irregular_check.png
 
     under results/debug_mask/
     """
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     save_dir = project_root / "results" / "debug_mask"
     save_dir.mkdir(parents=True, exist_ok=True)
 
     image = load_demo_image(size=(128, 128))
 
     mask_dict = {
+        "random_10": random_mask(image.shape, missing_ratio=0.1, seed=0),
         "random_30": random_mask(image.shape, missing_ratio=0.3, seed=0),
-        "block": block_mask(image.shape, block_size=32, seed=0),
         "irregular": irregular_mask(
             image.shape,
-            num_strokes=10,
-            max_len=40,
-            max_width=12,
+            num_strokes=5,
+            max_len=25,
+            max_width=6,
             seed=0
         ),
     }

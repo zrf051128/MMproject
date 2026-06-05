@@ -1,2 +1,2 @@
 # MMproject
-This is a reposity for my code in Mathematical Modeling course project
+This is a repository for code in Mathematical Modeling course project, by Ruofan Zhang and Hanlin Geng.

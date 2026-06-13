@@ -129,6 +129,8 @@ def plot_psnr_by_mask(mask_table, out_path):
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     plot_df = mask_table.drop(columns=["method_label"]).copy()
+    plot_labels = dict(METHOD_LABELS)
+    plot_labels["tv_ae"] = "PAE-TV"
     x = np.arange(len(plot_df.columns))
     width = 0.12
 
@@ -139,7 +141,7 @@ def plot_psnr_by_mask(mask_table, out_path):
             x + offset,
             plot_df.loc[method].to_numpy(dtype=float),
             width=width,
-            label=METHOD_LABELS.get(method, method),
+            label=plot_labels.get(method, method),
         )
     plt.xticks(x, plot_df.columns)
     plt.ylabel("Mean PSNR")

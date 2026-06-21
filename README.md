@@ -8,7 +8,7 @@ The main comparison methods are:
 - Wavelet-only
 - TV
 - AE-only
-- TV+AE
+- PAE-TV
 
 The default experiment images are `cameraman`, `barbara`, `house`, and `peppers`.
 

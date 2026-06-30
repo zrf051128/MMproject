@@ -36,10 +36,12 @@ MMproject/
 |       `-- train_ae.py
 |-- results/
 |   |-- ae_weights/
+|   |-- debug_musk/
 |   |-- figures/
 |   |-- logs/
 |   |-- restored_images/
 |   `-- tables/
+|-- LICENSE
 `-- README.md
 ```
 
@@ -50,8 +52,6 @@ Use Python 3.10 or newer. From the project root, install the required packages:
 ```powershell
 pip install numpy pandas matplotlib pillow scikit-image torch
 ```
-
-If you need a CUDA-enabled PyTorch build, install PyTorch according to your local CUDA version.
 
 ## Data And Weights
 
